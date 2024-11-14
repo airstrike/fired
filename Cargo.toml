@@ -1,0 +1,15 @@
+[package]
+name = "fired"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iced = { version = "0.13.1", features = ["canvas", "lazy", "tokio"] }
+
+[workspace]
+members = ["nero"]
+
+[workspace.dependencies]
+serde = { version = "1.0.215", features = ["derive", "std"] }
+thiserror = "1.0"
+tokio = { version = "1.36", features = ["full"] }
