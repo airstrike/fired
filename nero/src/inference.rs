@@ -4,53 +4,93 @@ use burn::{
     record::{NoStdTrainingRecorder, Recorder},
     tensor::backend::Backend,
 };
-// use rgb::RGB8;
-// use textplots::{Chart, ColorPlot, Shape};
+use rgb::RGB8;
+use textplots::{Chart, ColorPlot, Shape};
 
 use crate::{
-    dataset::{HousingBatcher, HousingDataset, HousingDistrictItem},
+    batch::RegressionBatcher,
+    dataframe::DynamicRegressionItem,
+    dynamic::FlexibleDataset,
     model::{RegressionModelConfig, RegressionModelRecord},
 };
 
-pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device) {
+pub fn infer<B: Backend>(
+    test_dataset: FlexibleDataset<DynamicRegressionItem>,
+    features: Vec<String>,
+    target: String,
+    device: B::Device,
+    artifact_dir: &str,
+    min_values: Vec<f32>,
+    max_values: Vec<f32>,
+    hidden_size: usize,
+) -> Vec<(f32, f32)> {
     let record: RegressionModelRecord<B> = NoStdTrainingRecorder::new()
         .load(format!("{artifact_dir}/model").into(), &device)
         .expect("Trained model should exist; run train first");
 
-    let model = RegressionModelConfig::new()
+    let model = RegressionModelConfig::new(features.len(), hidden_size)
         .init(&device)
         .load_record(record);
 
-    // Use a sample of 1000 items from the test split
-    let dataset = HousingDataset::test();
-    let items: Vec<HousingDistrictItem> = dataset.iter().take(1000).collect();
+    // Process in smaller batches
+    let batch_size = 32;
+    let mut all_points = Vec::new();
 
-    let batcher = HousingBatcher::new(device);
-    let batch = batcher.batch(items.clone());
-    let predicted = model.forward(batch.inputs);
-    let targets = batch.targets;
+    // Create batches
+    let items: Vec<DynamicRegressionItem> = test_dataset.iter().collect();
+    for chunk in items.chunks(batch_size) {
+        let batcher = RegressionBatcher::new(
+            device.clone(),
+            features.clone(),
+            target.clone(),
+            min_values.clone(),
+            max_values.clone(),
+        );
 
-    // Display the predicted vs expected values
-    let predicted = predicted.squeeze::<1>(1).into_data();
-    let expected = targets.into_data();
+        let batch = batcher.batch(chunk.to_vec());
+        let predicted = model.forward(batch.inputs);
+        let targets = batch.targets;
 
-    let points = predicted
-        .iter::<f32>()
-        .zip(expected.iter::<f32>())
-        .collect::<Vec<_>>();
+        let predicted = predicted.squeeze::<1>(1).into_data();
+        let expected = targets.into_data();
 
-    println!("Predicted vs. Expected Median House Value (in 100,000$)");
-    // Chart::new_with_y_range(120, 60, 0., 5., 0., 5.)
-    //     .linecolorplot(
-    //         &Shape::Points(&points),
-    //         RGB8 {
-    //             r: 255,
-    //             g: 85,
-    //             b: 85,
-    //         },
-    //     )
-    //     .display();
+        let points: Vec<(f32, f32)> = predicted
+            .iter::<f32>()
+            .zip(expected.iter::<f32>())
+            .collect();
 
-    // Print a single numeric value as an example
-    println!("Predicted {} Expected {}", points[0].0, points[0].1);
+        all_points.extend(points);
+    }
+
+    log::info!("Total predictions: {}", all_points.len());
+
+    // Calculate some basic statistics
+    let mse: f32 = all_points
+        .iter()
+        .map(|(pred, actual)| (pred - actual).powi(2))
+        .sum::<f32>()
+        / all_points.len() as f32;
+
+    log::info!("Mean Squared Error: {:.6}", mse);
+
+    // Plot all predictions
+    Chart::new_with_y_range(120, 60, 0., 5., 0., 5.)
+        .linecolorplot(
+            &Shape::Points(&all_points),
+            RGB8 {
+                r: 255,
+                g: 85,
+                b: 85,
+            },
+        )
+        .display();
+
+    // Show some sample predictions
+    log::info!("Sample predictions (Predicted vs Expected):");
+    for (i, (pred, actual)) in all_points.iter().take(5).enumerate() {
+        log::info!("Sample {}: {:.3} vs {:.3}", i + 1, pred, actual);
+    }
+    log::info!("");
+
+    all_points
 }

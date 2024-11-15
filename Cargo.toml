@@ -5,11 +5,16 @@ edition = "2021"
 
 [dependencies]
 iced = { version = "0.13.1", features = ["canvas", "lazy", "tokio"] }
+nero = { path = "nero" }
+log = { path = "log" }
+tokio.workspace = true
 
 [workspace]
-members = ["nero"]
+members = ["nero", "log"]
 
 [workspace.dependencies]
+serde_json = "1.0.132"
 serde = { version = "1.0.215", features = ["derive", "std"] }
 thiserror = "1.0"
 tokio = { version = "1.36", features = ["full"] }
+plotters = "=0.3.6"
